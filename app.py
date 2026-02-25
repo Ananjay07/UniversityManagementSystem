@@ -943,6 +943,68 @@ def admin_delete_announcement(ann_id):
     flash('Announcement removed!', 'info')
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/remove-student/<int:student_id>', methods=['POST'])
+@admin_required
+def admin_remove_student(student_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get user_id before deleting student record
+        cursor.execute("SELECT user_id FROM students WHERE id = ?", (student_id,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['user_id']
+            
+            # Delete related records
+            cursor.execute("DELETE FROM attendance WHERE student_id = ?", (student_id,))
+            cursor.execute("DELETE FROM drive_registrations WHERE student_id = ?", (student_id,))
+            cursor.execute("DELETE FROM event_registrations WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            
+            conn.commit()
+            flash('Student and all related records removed successfully!', 'success')
+        else:
+            flash('Student not found!', 'danger')
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+    finally:
+        conn.close()
+        
+    return redirect(url_for('admin_students'))
+
+@app.route('/admin/remove-faculty/<int:faculty_id>', methods=['POST'])
+@admin_required
+def admin_remove_faculty(faculty_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get user_id before deleting faculty record
+        cursor.execute("SELECT user_id FROM faculty WHERE id = ?", (faculty_id,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['user_id']
+            
+            # Delete related records
+            cursor.execute("DELETE FROM event_registrations WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM faculty WHERE id = ?", (faculty_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            
+            conn.commit()
+            flash('Faculty member and all related records removed successfully!', 'success')
+        else:
+            flash('Faculty not found!', 'danger')
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+    finally:
+        conn.close()
+        
+    return redirect(url_for('admin_faculties'))
+
 # ==================== INITIALIZE DATABASE ON FIRST RUN ====================
 
 if not os.path.exists('database'):

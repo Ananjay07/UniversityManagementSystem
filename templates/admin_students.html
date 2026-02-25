@@ -37,6 +37,11 @@
                             title="View Report">
                             <i class="fas fa-file-alt"></i>
                         </a>
+                        <form action="{{ url_for('admin_remove_student', student_id=student.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to remove this student? This will also delete their attendance and registrations.');">
+                            <button type="submit" class="btn-icon btn-delete" style="border: none; background: none; cursor: pointer; padding: 0;">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}
@@ -98,6 +103,15 @@
     .btn-icon {
         color: #4361ee;
         font-size: 1.1rem;
+        margin-right: 10px;
+    }
+
+    .btn-delete {
+        color: #ef476f;
+    }
+    
+    .btn-delete:hover {
+        color: #d00000;
     }
 </style>
 {% endblock %}

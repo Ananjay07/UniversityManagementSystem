@@ -762,8 +762,9 @@ def admin_add_user():
                 student_id = request.form['student_id']
                 program = request.form['program']
                 semester = request.form['semester']
-                cursor.execute("INSERT INTO students (user_id, student_id, program, semester) VALUES (?, ?, ?, ?)",
-                               (user_id, student_id, program, semester))
+                cgpa = request.form.get('cgpa', 0.0)
+                cursor.execute("INSERT INTO students (user_id, student_id, program, semester, cgpa) VALUES (?, ?, ?, ?, ?)",
+                               (user_id, student_id, program, semester, cgpa))
             elif user_type == 'faculty':
                 faculty_id = request.form['faculty_id']
                 department = request.form['department']

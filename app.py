@@ -9,22 +9,6 @@ app.secret_key = 'your-secret-key-change-in-production'  # Change this in produc
 
 DATABASE = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'database', 'university.db')
 
-# Ensure database directory exists and database is initialized
-db_dir = os.path.dirname(DATABASE)
-if db_dir and not os.path.exists(db_dir):
-    os.makedirs(db_dir)
-try:
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    if not cursor.fetchone():
-        conn.close()
-        init_db()
-    else:
-        conn.close()
-except Exception:
-    pass
-
 def get_db_connection():
     """Create a database connection"""
     conn = sqlite3.connect(DATABASE)
@@ -372,8 +356,46 @@ def login():
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid username or password.', 'danger')
+            
+    # GET request - Query demo credentials from database dynamically
+    conn = get_db_connection()
     
-    return render_template('login.html')
+    # 1. Check student
+    student_demo = conn.execute(
+        "SELECT username, password FROM users WHERE username = '2024001' AND password = 'pass123' AND user_type = 'student'"
+    ).fetchone()
+    if not student_demo:
+        # Fallback to any existing student in the database
+        student_demo = conn.execute(
+            "SELECT username, password FROM users WHERE user_type = 'student' LIMIT 1"
+        ).fetchone()
+        
+    # 2. Check faculty
+    faculty_demo = conn.execute(
+        "SELECT username, password FROM users WHERE username = 'faculty1' AND password = 'pass123' AND user_type = 'faculty'"
+    ).fetchone()
+    if not faculty_demo:
+        # Fallback to any existing faculty in the database
+        faculty_demo = conn.execute(
+            "SELECT username, password FROM users WHERE user_type = 'faculty' LIMIT 1"
+        ).fetchone()
+        
+    # 3. Check admin
+    admin_demo = conn.execute(
+        "SELECT username, password FROM users WHERE username = 'admin' AND password = 'admin123' AND user_type = 'admin'"
+    ).fetchone()
+    if not admin_demo:
+        # Fallback to any existing admin in the database
+        admin_demo = conn.execute(
+            "SELECT username, password FROM users WHERE user_type = 'admin' LIMIT 1"
+        ).fetchone()
+        
+    conn.close()
+    
+    return render_template('login.html',
+                           student_demo=student_demo,
+                           faculty_demo=faculty_demo,
+                           admin_demo=admin_demo)
 
 @app.route('/logout')
 def logout():
@@ -1619,6 +1641,23 @@ def update_attendance_api(attendance_id):
     return jsonify({'success': success})
 
 # ==================== RUN APPLICATION ====================
+
+# Ensure database directory exists and database is initialized
+db_dir = os.path.dirname(DATABASE)
+if db_dir and not os.path.exists(db_dir):
+    os.makedirs(db_dir)
+    
+try:
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if not cursor.fetchone():
+        conn.close()
+        init_db()
+    else:
+        conn.close()
+except Exception:
+    pass
 
 if __name__ == '__main__':
     app.run(debug=True)

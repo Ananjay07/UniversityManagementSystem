@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}University Management System{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <i class="fas fa-graduation-cap"></i>
+                <span>UMS</span>
+            </div>
+            <ul class="nav-menu">
+                {% if session.user_id %}
+                    {% if session.user_type == 'student' %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('student_dashboard') }}" class="nav-link">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('view_attendance') }}" class="nav-link">Attendance</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('view_assignments') }}" class="nav-link">Assignments</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('view_placements') }}" class="nav-link">Placements</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('view_events') }}" class="nav-link">Events</a>
+                        </li>
+                    {% elif session.user_type == 'faculty' %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('faculty_dashboard') }}" class="nav-link">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('manage_attendance') }}" class="nav-link">Attendance</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('manage_assignments') }}" class="nav-link">Assignments</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('view_events') }}" class="nav-link">Events</a>
+                        </li>
+                    {% elif session.user_type == 'admin' %}
+                        <li class="nav-item">
+                            <a href="{{ url_for('admin_dashboard') }}" class="nav-link">Dashboard</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('manage_users') }}" class="nav-link">Users</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('manage_placements') }}" class="nav-link">Placements</a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('manage_events') }}" class="nav-link">Events</a>
+                        </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('logout') }}" class="nav-link logout">Logout</a>
+                    </li>
+                {% else %}
+                    <li class="nav-item">
+                        <a href="{{ url_for('login') }}" class="nav-link">Login</a>
+                    </li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                        <button class="close-alert">&times;</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="footer">
+        <p>&copy; 2024 University Management System. All rights reserved.</p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

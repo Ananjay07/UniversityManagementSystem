@@ -1,6 +1,6 @@
 # 🎓 University Management System (UMS)
 
-A professional, full-featured **University Management System** designed to streamline academic operations, placement drives, and student-faculty interactions. Built with a **Flask REST API** backend and a modern **React Single Page Application (SPA)** frontend, it offers a robust, high-performance dashboard for students, faculty, and administrators.
+A professional, full-featured **University Management System** designed to streamline academic operations, placement drives, and student-faculty interactions. Built with **Flask** and **SQLite**, it offers a robust dashboard for students, faculty, and administrators.
 
 ---
 
@@ -34,62 +34,25 @@ Check out the live application here: [**University Management System**](https://
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite, React Router DOM, Lucide React (Responsive Glassmorphism UI)
-- **Backend**: Python (Flask REST API)
+- **Backend**: Python (Flask)
+- **Frontend**: HTML5, CSS3, JavaScript
 - **Database**: SQLite3
 - **Deployment**: Railway
-- **Environment**: Node.js & Python Virtualenv
+- **Environment**: Virtualenv
 
 ---
 
 ## 📦 Project Structure
 
 ```text
-├── app.py              # Main Flask REST API application
+├── app.py              # Main application logic and routes
 ├── database/           # SQLite database storage
-├── frontend/           # React SPA frontend (Vite, TypeScript)
-│   ├── src/            # React components, pages, and hooks
-│   ├── package.json    # Frontend dependencies and scripts
-│   └── index.html      # React entry HTML
-├── requirements.txt    # Python backend dependencies
-├── Procfile            # Deployment configuration for Railway
-└── README.md           # Project documentation
+├── static/             # CSS, JS, and image assets
+├── templates/          # Jinja2 HTML templates
+├── requirements.txt    # Python dependencies
+├── Procfile             # Deployment configuration for Railway
+└── update_db.py        # Database migration/update utility
 ```
-
----
-
-## 💻 Setup & Installation
-
-### Backend Setup
-1. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   ```
-2. Activate the virtual environment:
-   - **Windows**: `venv\Scripts\activate`
-   - **Mac/Linux**: `source venv/bin/activate`
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Run the API server:
-   ```bash
-   python app.py
-   ```
-
-### Frontend Setup
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
 
 ---
 

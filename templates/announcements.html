@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}Announcements - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Announcements</h1>
+    <p class="text-muted">Important updates and announcements</p>
+</div>
+
+<div class="announcements-section">
+    {% if session.user_type == 'admin' %}
+    <div class="create-announcement">
+        <button class="btn btn-primary" id="toggleForm">
+            <i class="fas fa-plus"></i> Create Announcement
+        </button>
+
+        <form method="POST" action="{{ url_for('create_announcement') }}" id="announcementForm" style="display: none; margin-top: 2rem;">
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="title">Title</label>
+                    <input type="text" id="title" name="title" required placeholder="Announcement title">
+                </div>
+
+                <div class="form-group">
+                    <label for="content">Content</label>
+                    <textarea id="content" name="content" required placeholder="Announcement content"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">
+                        <i class="fas fa-check"></i> Publish
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="cancelForm">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </form>
+    </div>
+    {% endif %}
+
+    {% if announcements %}
+    <div class="announcements-list">
+        {% for announcement in announcements %}
+        <div class="announcement-card">
+            <div class="card">
+                <div class="card-header">
+                    <h3>{{ announcement.title }}</h3>
+                    <span class="date">{{ announcement.created_at }}</span>
+                </div>
+                <div class="card-body">
+                    <p>{{ announcement.content }}</p>
+                </div>
+                {% if session.user_type == 'admin' %}
+                <div class="card-footer">
+                    <a href="{{ url_for('delete_announcement', announcement_id=announcement.id) }}" 
+                       class="btn btn-sm btn-danger" data-action="delete" data-confirm="Are you sure?">
+                        <i class="fas fa-trash"></i> Delete
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <i class="fas fa-bullhorn"></i>
+        <h3>No Announcements</h3>
+        <p>No announcements at the moment.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('toggleForm').addEventListener('click', function() {
+    const form = document.getElementById('announcementForm');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('cancelForm').addEventListener('click', function() {
+    document.getElementById('announcementForm').style.display = 'none';
+});
+</script>
+
+<style>
+.announcements-section {
+    padding: 0;
+}
+
+.create-announcement {
+    margin-bottom: 2rem;
+}
+
+.form-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.announcements-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.announcement-card .card {
+    background: white;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
+}
+
+.announcement-card .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.card-header h3 {
+    margin: 0;
+    color: var(--text-color);
+}
+
+.date {
+    color: var(--text-light);
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.card-body {
+    padding: 1.5rem;
+    line-height: 1.8;
+}
+
+.card-body p {
+    margin: 0;
+    color: var(--text-color);
+}
+
+.card-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 1rem;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    background: white;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    color: var(--text-light);
+}
+
+.empty-state i {
+    font-size: 3rem;
+    color: var(--border-color);
+    margin-bottom: 1rem;
+}
+
+.empty-state h3 {
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .card-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .date {
+        margin-top: 0.5rem;
+    }
+}
+</style>
+{% endblock %}

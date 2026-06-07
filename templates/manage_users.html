@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Users - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Manage Users</h1>
+    <p class="text-muted">Add, edit, and remove system users</p>
+</div>
+
+<div class="management-section">
+    <!-- Create User Form -->
+    <div class="form-section">
+        <h2>Add New User</h2>
+        <form method="POST" action="{{ url_for('admin_add_user') }}" class="form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required placeholder="Enter username">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required placeholder="Enter password">
+                </div>
+
+                <div class="form-group">
+                    <label for="full_name">Full Name</label>
+                    <input type="text" id="full_name" name="full_name" required placeholder="Enter full name">
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="Enter email">
+                </div>
+
+                <div class="form-group">
+                    <label for="user_type">User Type</label>
+                    <select id="user_type" name="user_type" required>
+                        <option value="">Select type</option>
+                        <option value="student">Student</option>
+                        <option value="faculty">Faculty</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="studentFields" style="display: none;">
+                    <label for="student_id">Student ID</label>
+                    <input type="text" id="student_id" name="student_id" placeholder="Student ID">
+                </div>
+
+                <div class="form-group" id="programField" style="display: none;">
+                    <label for="program">Program</label>
+                    <input type="text" id="program" name="program" placeholder="Program Name">
+                </div>
+
+                <div class="form-group" id="semesterField" style="display: none;">
+                    <label for="semester">Semester</label>
+                    <input type="number" id="semester" name="semester" min="1" placeholder="Semester">
+                </div>
+
+                <div class="form-group" id="cgpaField" style="display: none;">
+                    <label for="cgpa">CGPA</label>
+                    <input type="number" id="cgpa" name="cgpa" step="0.01" min="0" max="10" placeholder="CGPA">
+                </div>
+
+                <div class="form-group" id="facultyFields" style="display: none;">
+                    <label for="faculty_id">Faculty ID</label>
+                    <input type="text" id="faculty_id" name="faculty_id" placeholder="Faculty ID">
+                </div>
+
+                <div class="form-group" id="departmentField" style="display: none;">
+                    <label for="department">Department</label>
+                    <input type="text" id="department" name="department" placeholder="Department">
+                </div>
+
+                <div class="form-group" id="designationField" style="display: none;">
+                    <label for="designation">Designation</label>
+                    <input type="text" id="designation" name="designation" placeholder="Designation">
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-user-plus"></i> Add User
+                </button>
+                <button type="reset" class="btn btn-secondary">
+                    <i class="fas fa-redo"></i> Reset
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Users List -->
+    <div class="list-section">
+        <h2>All Users</h2>
+        {% if users %}
+        <table>
+            <thead>
+                <tr>
+                    <th data-sortable>Name</th>
+                    <th data-sortable>Username</th>
+                    <th data-sortable>Type</th>
+                    <th>Email</th>
+                    <th data-sortable>Joined</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.full_name }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>
+                        <span class="badge badge-primary">{{ user.user_type|upper }}</span>
+                    </td>
+                    <td>{{ user.email or 'N/A' }}</td>
+                    <td>{{ user.created_at }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No users found.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+document.getElementById('user_type').addEventListener('change', function() {
+    const type = this.value;
+    document.getElementById('studentFields').style.display = type === 'student' ? 'block' : 'none';
+    document.getElementById('facultyFields').style.display = type === 'faculty' ? 'block' : 'none';
+    document.getElementById('departmentField').style.display = type === 'faculty' ? 'block' : 'none';
+});
+</script>
+
+<style>
+.management-section {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+}
+
+.form-section,
+.list-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.form {
+    max-width: 800px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}

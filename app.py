@@ -1,15 +1,29 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 import os
-from flask_cors import CORS
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-in-production'  # Change this in production!
-CORS(app, supports_credentials=True)
 
-DATABASE = 'database/university.db'
+DATABASE = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'database', 'university.db')
+
+# Ensure database directory exists and database is initialized
+db_dir = os.path.dirname(DATABASE)
+if db_dir and not os.path.exists(db_dir):
+    os.makedirs(db_dir)
+try:
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if not cursor.fetchone():
+        conn.close()
+        init_db()
+    else:
+        conn.close()
+except Exception:
+    pass
 
 def get_db_connection():
     """Create a database connection"""
@@ -288,444 +302,796 @@ def insert_sample_data(conn):
 
 # ==================== AUTHENTICATION DECORATOR ====================
 
-from functools import wraps
-
-def api_login_required(f):
+def login_required(f):
+    """Decorator to require login for protected routes"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
-            return jsonify({'error': 'Unauthorized', 'message': 'Please log in to access this data.'}), 401
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-def api_student_required(f):
+def student_required(f):
+    """Decorator to require student login"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_type' not in session or session['user_type'] != 'student':
-            return jsonify({'error': 'Forbidden', 'message': 'This endpoint is only accessible to students.'}), 403
+            flash('This page is only accessible to students.', 'danger')
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
-def api_faculty_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_type' not in session or session['user_type'] != 'faculty':
-            return jsonify({'error': 'Forbidden', 'message': 'This endpoint is only accessible to faculty.'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
-
-def api_admin_required(f):
+def admin_required(f):
+    """Decorator to require admin login"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_type' not in session or session['user_type'] != 'admin':
-            return jsonify({'error': 'Forbidden', 'message': 'This endpoint is only accessible to admins.'}), 403
+            flash('This page is only accessible to admins.', 'danger')
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
-# ==================== API ROUTES ====================
+# ==================== ROUTES ====================
 
-@app.route('/api/login', methods=['POST'])
-def api_login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, password)).fetchone()
-    conn.close()
-    if user:
-        session['user_id'] = user['id']
-        session['username'] = user['username']
-        session['user_type'] = user['user_type']
-        session['full_name'] = user['full_name']
-        return jsonify({'success': True, 'user': {'id': user['id'], 'username': user['username'], 'user_type': user['user_type'], 'full_name': user['full_name']}})
-    return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
+@app.route('/')
+def index():
+    """Home page - redirect to login if not logged in"""
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
-@app.route('/api/logout', methods=['POST'])
-def api_logout():
-    session.clear()
-    return jsonify({'success': True})
-
-@app.route('/api/user', methods=['GET'])
-@api_login_required
-def api_user():
-    return jsonify({'user': {'id': session.get('user_id'), 'username': session.get('username'), 'user_type': session.get('user_type'), 'full_name': session.get('full_name')}})
-
-@app.route('/api/profile', methods=['GET'])
-@api_login_required
-def api_profile():
-    conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    conn.close()
-    return jsonify(dict(user))
-
-@app.route('/api/profile/update', methods=['POST'])
-@api_login_required
-def api_profile_update():
-    data = request.get_json()
-    email = data.get('email')
-    conn = get_db_connection()
-    conn.execute('UPDATE users SET email = ? WHERE id = ?', (email, session['user_id']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'Profile updated'})
-
-@app.route('/api/profile/password', methods=['POST'])
-@api_login_required
-def api_profile_password():
-    data = request.get_json()
-    current = data.get('current_password')
-    new_pass = data.get('new_password')
-    conn = get_db_connection()
-    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    if user['password'] != current:
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page for both students and faculty"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        # Query database for user
+        conn = get_db_connection()
+        user = conn.execute(
+            'SELECT * FROM users WHERE username = ? AND password = ?',
+            (username, password)
+        ).fetchone()
         conn.close()
-        return jsonify({'success': False, 'message': 'Incorrect current password'}), 400
-    conn.execute('UPDATE users SET password = ? WHERE id = ?', (new_pass, session['user_id']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'Password changed'})
-
-@app.route('/api/dashboard', methods=['GET'])
-@api_login_required
-def api_dashboard():
-    conn = get_db_connection()
-    announcements = conn.execute('SELECT * FROM announcements ORDER BY created_at DESC LIMIT 5').fetchall()
-    res = {'announcements': [dict(a) for a in announcements]}
+        
+        if user:
+            # Set session variables
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['user_type'] = user['user_type']
+            session['full_name'] = user['full_name']
+            
+            flash(f'Welcome back, {user["full_name"]}!', 'success')
+            
+            # Redirect admins directly to admin dashboard
+            if user['user_type'] == 'admin':
+                return redirect(url_for('admin_dashboard'))
+                
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password.', 'danger')
     
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """Logout user and clear session"""
+    session.clear()
+    flash('You have been logged out successfully.', 'info')
+    return redirect(url_for('login'))
+
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    """User profile page"""
+    conn = get_db_connection()
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        
+        if action == 'update_details':
+            email = request.form.get('email')
+            conn.execute('UPDATE users SET email = ? WHERE id = ?', (email, session['user_id']))
+            conn.commit()
+            flash('Profile details updated successfully!', 'success')
+            
+        elif action == 'change_password':
+            current_password = request.form.get('current_password')
+            new_password = request.form.get('new_password')
+            confirm_password = request.form.get('confirm_password')
+            
+            # Verify current password
+            user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+            if user['password'] != current_password:
+                flash('Incorrect current password.', 'danger')
+            elif new_password != confirm_password:
+                flash('New passwords do not match.', 'danger')
+            else:
+                conn.execute('UPDATE users SET password = ? WHERE id = ?', (new_password, session['user_id']))
+                conn.commit()
+                flash('Password changed successfully!', 'success')
+        
+        conn.close()
+        return redirect(url_for('profile'))
+    
+    # GET request
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    
+    return render_template('profile.html', user=user)
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """Main dashboard with 3 tiles"""
+    # Redirect admins to admin dashboard
+    if session.get('user_type') == 'admin':
+        return redirect(url_for('admin_dashboard'))
+        
+    conn = get_db_connection()
+    
+    # Get student/faculty specific data
     if session['user_type'] == 'student':
-        student = conn.execute('SELECT * FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
-        att = conn.execute('SELECT COUNT(*) as total, AVG(CAST(attended_classes AS FLOAT)/total_classes*100) as avg FROM attendance WHERE student_id = ?', (student['id'],)).fetchone()
-        pend = conn.execute("SELECT COUNT(*) as c FROM assignments WHERE status='pending' AND due_date >= date('now')").fetchone()
-        elig = conn.execute("SELECT COUNT(*) as c FROM placement_drives WHERE status='Open' AND min_cgpa <= ?", (student['cgpa'],)).fetchone()
-        upc = conn.execute("SELECT COUNT(*) as c FROM events WHERE event_date >= date('now')").fetchone()
+        student = conn.execute('''
+            SELECT s.* FROM students s
+            WHERE s.user_id = ?
+        ''', (session['user_id'],)).fetchone()
         
-        res.update({
-            'student': dict(student),
-            'attendance_summary': dict(att) if att else None,
-            'pending_assignments': pend['c'] if pend else 0,
-            'eligible_drives': elig['c'] if elig else 0,
-            'upcoming_events': upc['c'] if upc else 0
-        })
-    elif session['user_type'] == 'faculty':
-        fac = conn.execute('SELECT * FROM faculty WHERE user_id = ?', (session['user_id'],)).fetchone()
-        res['faculty'] = dict(fac) if fac else None
-    elif session['user_type'] == 'admin':
-        st_c = conn.execute('SELECT COUNT(*) FROM students').fetchone()[0]
-        fa_c = conn.execute('SELECT COUNT(*) FROM faculty').fetchone()[0]
-        dr_c = conn.execute('SELECT COUNT(*) FROM placement_drives').fetchone()[0]
-        ev_c = conn.execute('SELECT COUNT(*) FROM events').fetchone()[0]
-        res.update({'stats': {'students': st_c, 'faculties': fa_c, 'drives': dr_c, 'events': ev_c}})
+        # Get attendance summary
+        attendance_summary = conn.execute('''
+            SELECT 
+                COUNT(*) as total_subjects,
+                AVG(CAST(attended_classes AS FLOAT) / total_classes * 100) as avg_attendance
+            FROM attendance
+            WHERE student_id = ?
+        ''', (student['id'],)).fetchone()
         
-    conn.close()
-    return jsonify(res)
+        # Get pending assignments count
+        pending_assignments = conn.execute('''
+            SELECT COUNT(*) as count FROM assignments
+            WHERE status = 'pending' AND due_date >= date('now')
+        ''').fetchone()
+        
+        # Get upcoming placement drives count
+        eligible_drives = conn.execute('''
+            SELECT COUNT(*) as count FROM placement_drives
+            WHERE status = 'Open' AND min_cgpa <= ?
+        ''', (student['cgpa'],)).fetchone()
+        
+        # Get upcoming events count
+        upcoming_events = conn.execute('''
+            SELECT COUNT(*) as count FROM events
+            WHERE event_date >= date('now')
+        ''').fetchone()
+        
+        # Get recent announcements
+        announcements = conn.execute('''
+            SELECT * FROM announcements 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        ''').fetchall()
+        
+        conn.close()
+        
+        dashboard_data = {
+            'student': student,
+            'attendance_summary': attendance_summary,
+            'pending_assignments': pending_assignments['count'],
+            'eligible_drives': eligible_drives['count'],
+            'upcoming_events': upcoming_events['count'],
+            'announcements': announcements
+        }
+        
+        return render_template('dashboard.html', data=dashboard_data)
+    
+    else:  # Faculty
+        faculty = conn.execute('''
+            SELECT f.* FROM faculty f
+            WHERE f.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        # Get recent announcements
+        announcements = conn.execute('''
+            SELECT * FROM announcements 
+            ORDER BY created_at DESC 
+            LIMIT 5
+        ''').fetchall()
+        
+        conn.close()
+        
+        dashboard_data = {
+            'faculty': faculty,
+            'announcements': announcements
+        }
+        
+        return render_template('dashboard_faculty.html', data=dashboard_data)
 
-@app.route('/api/academics', methods=['GET'])
-@api_login_required
-@api_student_required
-def api_academics():
+@app.route('/academics')
+@login_required
+@student_required
+def academics():
+    """Academics page - detailed view"""
     conn = get_db_connection()
-    student = conn.execute('SELECT * FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
-    att = conn.execute('''
-        SELECT s.subject_name, s.subject_code, a.total_classes, a.attended_classes, 
-        CAST(a.attended_classes AS FLOAT)/a.total_classes*100 as percentage
-        FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id = ?
+    
+    # Get student info
+    student = conn.execute('''
+        SELECT s.* FROM students s
+        WHERE s.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get detailed attendance with subject info
+    attendance_data = conn.execute('''
+        SELECT 
+            s.subject_name,
+            s.subject_code,
+            a.total_classes,
+            a.attended_classes,
+            CAST(a.attended_classes AS FLOAT) / a.total_classes * 100 as percentage
+        FROM attendance a
+        JOIN subjects s ON a.subject_id = s.id
+        WHERE a.student_id = ?
+        ORDER BY percentage DESC
     ''', (student['id'],)).fetchall()
-    ass = conn.execute('''
-        SELECT a.id, a.title, a.description, a.due_date, a.status, s.subject_name
-        FROM assignments a JOIN subjects s ON a.subject_id = s.id
-        WHERE a.due_date >= date('now') ORDER BY a.due_date ASC
+    
+    # Get all assignments
+    assignments = conn.execute('''
+        SELECT 
+            a.id,
+            a.title,
+            a.description,
+            a.due_date,
+            a.status,
+            s.subject_name
+        FROM assignments a
+        JOIN subjects s ON a.subject_id = s.id
+        WHERE a.due_date >= date('now')
+        ORDER BY a.due_date ASC
     ''').fetchall()
+    
     conn.close()
-    return jsonify({'attendance': [dict(x) for x in att], 'assignments': [dict(x) for x in ass]})
+    
+    return render_template('academics.html', 
+                         student=student, 
+                         attendance=attendance_data, 
+                         assignments=assignments)
 
-@app.route('/api/placements', methods=['GET'])
-@api_login_required
-@api_student_required
-def api_placements():
+@app.route('/placements')
+@login_required
+@student_required
+def placements():
+    """Placement portal page"""
     conn = get_db_connection()
-    student = conn.execute('SELECT * FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
-    comp = conn.execute('SELECT * FROM companies ORDER BY visit_date DESC LIMIT 10').fetchall()
-    reg = conn.execute('''SELECT pd.*, dr.registration_date, dr.status as reg_status FROM placement_drives pd
-        JOIN drive_registrations dr ON pd.id = dr.drive_id WHERE dr.student_id = ? ORDER BY pd.drive_date ASC''', (student['id'],)).fetchall()
-    elig = conn.execute('''SELECT * FROM placement_drives WHERE min_cgpa <= ? AND status='Open' 
-        AND id NOT IN (SELECT drive_id FROM drive_registrations WHERE student_id=?) ORDER BY drive_date ASC''', (student['cgpa'], student['id'])).fetchall()
+    
+    # Get student info for eligibility check
+    student = conn.execute('''
+        SELECT s.* FROM students s
+        WHERE s.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get companies visited
+    companies = conn.execute('''
+        SELECT * FROM companies
+        ORDER BY visit_date DESC
+        LIMIT 10
+    ''').fetchall()
+    
+    # Get registered drives
+    registered_drives = conn.execute('''
+        SELECT pd.*, dr.registration_date, dr.status as reg_status
+        FROM placement_drives pd
+        JOIN drive_registrations dr ON pd.id = dr.drive_id
+        WHERE dr.student_id = ?
+        ORDER BY pd.drive_date ASC
+    ''', (student['id'],)).fetchall()
+    
+    # Get eligible placement drives (excluding registered ones)
+    eligible_drives = conn.execute('''
+        SELECT * FROM placement_drives
+        WHERE min_cgpa <= ? 
+        AND status = 'Open'
+        AND id NOT IN (SELECT drive_id FROM drive_registrations WHERE student_id = ?)
+        ORDER BY drive_date ASC
+    ''', (student['cgpa'], student['id'])).fetchall()
+    
+    # Get all upcoming drives
+    all_drives = conn.execute('''
+        SELECT * FROM placement_drives
+        WHERE status IN ('Open', 'Upcoming')
+        ORDER BY drive_date ASC
+    ''').fetchall()
+    
     conn.close()
-    return jsonify({'companies': [dict(x) for x in comp], 'registered_drives': [dict(x) for x in reg], 'eligible_drives': [dict(x) for x in elig]})
+    
+    return render_template('placements.html', 
+                         student=student,
+                         companies=companies, 
+                         eligible_drives=eligible_drives,
+                         registered_drives=registered_drives,
+                         all_drives=all_drives)
 
-@app.route('/api/apply-drive', methods=['POST'])
-@api_login_required
-@api_student_required
-def api_apply_drive():
-    drive_id = request.get_json().get('drive_id')
+@app.route('/apply-drive', methods=['POST'])
+@login_required
+@student_required
+def apply_drive():
+    """Register for a placement drive"""
+    drive_id = request.form.get('drive_id')
+    
     conn = get_db_connection()
-    student = conn.execute('SELECT id FROM students WHERE user_id=?', (session['user_id'],)).fetchone()
-    ex = conn.execute('SELECT * FROM drive_registrations WHERE student_id=? AND drive_id=?', (student['id'], drive_id)).fetchone()
-    if ex:
-        conn.close()
-        return jsonify({'success': False, 'message': 'Already registered'}), 400
-    conn.execute('INSERT INTO drive_registrations (student_id, drive_id) VALUES (?, ?)', (student['id'], drive_id))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'Registered successfully'})
-
-@app.route('/api/events', methods=['GET'])
-@api_login_required
-def api_events():
-    conn = get_db_connection()
-    upc = conn.execute("SELECT * FROM events WHERE event_date >= date('now') ORDER BY event_date ASC").fetchall()
-    past = conn.execute("SELECT * FROM events WHERE event_date < date('now') ORDER BY event_date DESC LIMIT 5").fetchall()
-    reg = conn.execute('''SELECT e.*, er.registration_date FROM events e JOIN event_registrations er ON e.id=er.event_id 
-        WHERE er.user_id=? ORDER BY er.registration_date DESC''', (session['user_id'],)).fetchall()
-    conn.close()
-    return jsonify({'upcoming': [dict(x) for x in upc], 'past': [dict(x) for x in past], 'registered': [dict(x) for x in reg]})
-
-@app.route('/api/register-event', methods=['POST'])
-@api_login_required
-def api_register_event():
-    event_id = request.get_json().get('event_id')
-    conn = get_db_connection()
-    ex = conn.execute('SELECT * FROM event_registrations WHERE user_id=? AND event_id=?', (session['user_id'], event_id)).fetchone()
-    if ex:
-        conn.close()
-        return jsonify({'success': False, 'message': 'Already registered'}), 400
-    conn.execute('INSERT INTO event_registrations (user_id, event_id) VALUES (?, ?)', (session['user_id'], event_id))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'Registered successfully'})
-
-# ADMIN ROUTES
-@app.route('/api/admin/users', methods=['GET'])
-@api_login_required
-@api_admin_required
-def api_admin_users():
-    conn = get_db_connection()
-    students = conn.execute('SELECT s.id, u.full_name, s.student_id, s.program, s.semester, s.cgpa FROM students s JOIN users u ON s.user_id = u.id').fetchall()
-    faculties = conn.execute('SELECT f.id, u.full_name, f.faculty_id, f.department, f.designation, u.email FROM faculty f JOIN users u ON f.user_id = u.id').fetchall()
-    conn.close()
-    return jsonify({'students': [dict(x) for x in students], 'faculties': [dict(x) for x in faculties]})
-
-@app.route('/api/admin/add-user', methods=['POST'])
-@api_login_required
-@api_admin_required
-def api_admin_add_user():
-    d = request.get_json()
-    conn = get_db_connection()
+    
     try:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO users (username, password, user_type, full_name, email) VALUES (?, ?, ?, ?, ?)",
-                       (d['username'], d['password'], d['user_type'], d['full_name'], d.get('email')))
-        uid = cursor.lastrowid
-        if d['user_type'] == 'student':
-            cursor.execute("INSERT INTO students (user_id, student_id, program, semester, cgpa) VALUES (?, ?, ?, ?, ?)",
-                           (uid, d['student_id'], d['program'], d['semester'], d.get('cgpa', 0.0)))
-        elif d['user_type'] == 'faculty':
-            cursor.execute("INSERT INTO faculty (user_id, faculty_id, department, designation) VALUES (?, ?, ?, ?)",
-                           (uid, d['faculty_id'], d['department'], d['designation']))
-        conn.commit()
-        return jsonify({'success': True, 'message': 'User added'})
-    except sqlite3.IntegrityError:
-        return jsonify({'success': False, 'message': 'Username or ID already exists'}), 400
+        # Get student info
+        student = conn.execute('SELECT id FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
+        
+        # Check if already registered
+        existing = conn.execute('''
+            SELECT * FROM drive_registrations 
+            WHERE student_id = ? AND drive_id = ?
+        ''', (student['id'], drive_id)).fetchone()
+        
+        if existing:
+            flash('You have already registered for this drive.', 'warning')
+        else:
+            conn.execute('''
+                INSERT INTO drive_registrations (student_id, drive_id)
+                VALUES (?, ?)
+            ''', (student['id'], drive_id))
+            conn.commit()
+            flash('Successfully registered for the placement drive!', 'success')
+            
+    except Exception as e:
+        flash(f'An error occurred: {str(e)}', 'danger')
+        
     finally:
         conn.close()
+        
+    return redirect(url_for('placements'))
 
-@app.route('/api/admin/remove-student/<int:sid>', methods=['DELETE'])
-@api_login_required
-@api_admin_required
-def api_admin_del_student(sid):
+@app.route('/events')
+@login_required
+def events():
+    """University events and happenings page"""
+    conn = get_db_connection()
+    
+    # Get upcoming events
+    upcoming = conn.execute('''
+        SELECT * FROM events
+        WHERE event_date >= date('now')
+        ORDER BY event_date ASC
+    ''').fetchall()
+    
+    # Get past events
+    past = conn.execute('''
+        SELECT * FROM events
+        WHERE event_date < date('now')
+        ORDER BY event_date DESC
+        LIMIT 5
+    ''').fetchall()
+    
+    # Get registered events for current user
+    registered_events = conn.execute('''
+        SELECT e.*, er.registration_date
+        FROM events e
+        JOIN event_registrations er ON e.id = er.event_id
+        WHERE er.user_id = ?
+        ORDER BY er.registration_date DESC
+    ''', (session['user_id'],)).fetchall()
+    
+    # Get recent announcements
+    announcements = conn.execute('''
+        SELECT * FROM announcements 
+        ORDER BY created_at DESC 
+        LIMIT 5
+    ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('events.html', 
+                         upcoming_events=upcoming, 
+                         past_events=past,
+                         registered_events=registered_events,
+                         announcements=announcements)
+
+@app.route('/register-event/<int:event_id>', methods=['POST'])
+@login_required
+def register_event(event_id):
+    """Register for an event"""
+    conn = get_db_connection()
+    
+    try:
+        # Check if already registered
+        existing = conn.execute('''
+            SELECT * FROM event_registrations 
+            WHERE user_id = ? AND event_id = ?
+        ''', (session['user_id'], event_id)).fetchone()
+        
+        if existing:
+            flash('You are already registered for this event.', 'warning')
+        else:
+            conn.execute('''
+                INSERT INTO event_registrations (user_id, event_id)
+                VALUES (?, ?)
+            ''', (session['user_id'], event_id))
+            conn.commit()
+            flash('Successfully registered for the event!', 'success')
+            
+    except Exception as e:
+        flash(f'An error occurred: {str(e)}', 'danger')
+        
+    finally:
+        conn.close()
+        
+    return redirect(url_for('events'))
+# ==================== ADMIN ROUTES ====================
+
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
     conn = get_db_connection()
     cursor = conn.cursor()
-    row = cursor.execute("SELECT user_id FROM students WHERE id=?", (sid,)).fetchone()
-    if row:
-        uid = row['user_id']
-        cursor.execute("DELETE FROM attendance WHERE student_id=?", (sid,))
-        cursor.execute("DELETE FROM drive_registrations WHERE student_id=?", (sid,))
-        cursor.execute("DELETE FROM event_registrations WHERE user_id=?", (uid,))
-        cursor.execute("DELETE FROM students WHERE id=?", (sid,))
-        cursor.execute("DELETE FROM users WHERE id=?", (uid,))
-        conn.commit()
+    
+    # Get stats
+    cursor.execute("SELECT COUNT(*) FROM students")
+    student_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM faculty")
+    faculty_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM subjects")
+    total_subjects = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM placement_drives")
+    drive_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM events")
+    event_count = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM placement_drives WHERE status = 'Open'")
+    active_placements = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM events WHERE event_date >= date('now')")
+    upcoming_events = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM assignments WHERE status = 'pending' AND due_date >= date('now')")
+    pending_assignments = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM drive_registrations")
+    drive_registrations = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM event_registrations")
+    event_registrations = cursor.fetchone()[0]
+    total_registrations = drive_registrations + event_registrations
+    
+    cursor.execute("SELECT * FROM announcements ORDER BY created_at DESC LIMIT 5")
+    announcements = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM users ORDER BY created_at DESC LIMIT 5")
+    latest_users = cursor.fetchall()
+    
     conn.close()
-    return jsonify({'success': True})
+    return render_template('admin_dashboard.html', 
+                           total_students=student_count, 
+                           total_faculty=faculty_count,
+                           total_subjects=total_subjects,
+                           total_placements=drive_count,
+                           total_events=event_count,
+                           total_users=total_users,
+                           active_placements=active_placements,
+                           upcoming_events=upcoming_events,
+                           pending_assignments=pending_assignments,
+                           total_registrations=total_registrations,
+                           latest_users=latest_users,
+                           announcements=announcements)
 
-@app.route('/api/admin/remove-faculty/<int:fid>', methods=['DELETE'])
-@api_login_required
-@api_admin_required
-def api_admin_del_faculty(fid):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    row = cursor.execute("SELECT user_id FROM faculty WHERE id=?", (fid,)).fetchone()
-    if row:
-        uid = row['user_id']
-        cursor.execute("DELETE FROM event_registrations WHERE user_id=?", (uid,))
-        cursor.execute("DELETE FROM faculty WHERE id=?", (fid,))
-        cursor.execute("DELETE FROM users WHERE id=?", (uid,))
-        conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-@app.route('/api/admin/placements', methods=['GET', 'POST'])
-@api_login_required
-@api_admin_required
-def api_admin_placements():
-    conn = get_db_connection()
-    if request.method == 'GET':
-        drives = conn.execute("SELECT * FROM placement_drives ORDER BY drive_date ASC").fetchall()
-        conn.close()
-        return jsonify([dict(x) for x in drives])
-    elif request.method == 'POST':
-        d = request.get_json()
-        conn.execute("INSERT INTO placement_drives (company_name, position, eligibility_criteria, drive_date, min_cgpa, description) VALUES (?, ?, ?, ?, ?, ?)",
-            (d['company_name'], d['position'], d['eligibility_criteria'], d['drive_date'], d['min_cgpa'], d['description']))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True})
-
-@app.route('/api/admin/placements/<int:did>', methods=['DELETE'])
-@api_login_required
-@api_admin_required
-def api_admin_del_placement(did):
-    conn = get_db_connection()
-    conn.execute("DELETE FROM placement_drives WHERE id=?", (did,))
-    conn.execute("DELETE FROM drive_registrations WHERE drive_id=?", (did,))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-@app.route('/api/admin/events', methods=['POST'])
-@api_login_required
-@api_admin_required
-def api_admin_add_event():
-    d = request.get_json()
-    conn = get_db_connection()
-    conn.execute("INSERT INTO events (event_name, event_type, event_date, location, description, organizer) VALUES (?, ?, ?, ?, ?, ?)",
-        (d['event_name'], d['event_type'], d['event_date'], d['location'], d['description'], d['organizer']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-@app.route('/api/admin/events/<int:eid>', methods=['DELETE'])
-@api_login_required
-@api_admin_required
-def api_admin_del_event(eid):
-    conn = get_db_connection()
-    conn.execute("DELETE FROM events WHERE id=?", (eid,))
-    conn.execute("DELETE FROM event_registrations WHERE event_id=?", (eid,))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-@app.route('/api/admin/announcements', methods=['POST'])
-@api_login_required
-@api_admin_required
-def api_admin_add_ann():
-    d = request.get_json()
-    conn = get_db_connection()
-    conn.execute("INSERT INTO announcements (title, content) VALUES (?, ?)", (d['title'], d['content']))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-@app.route('/api/admin/announcements/<int:aid>', methods=['DELETE'])
-@api_login_required
-@api_admin_required
-def api_admin_del_ann(aid):
-    conn = get_db_connection()
-    conn.execute("DELETE FROM announcements WHERE id=?", (aid,))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
-
-# FACULTY ROUTES
-@app.route('/api/faculty/classes', methods=['GET'])
-@api_login_required
-@api_faculty_required
-def api_fac_classes():
-    conn = get_db_connection()
-    classes = conn.execute('''SELECT s.id, s.subject_code, s.subject_name, s.credits, COUNT(DISTINCT st.id) as student_count
-        FROM subjects s LEFT JOIN attendance a ON s.id = a.subject_id LEFT JOIN students st ON a.student_id = st.id GROUP BY s.id''').fetchall()
-    conn.close()
-    return jsonify([dict(x) for x in classes])
-
-@app.route('/api/faculty/mark-attendance/<int:sid>', methods=['GET', 'POST'])
-@api_login_required
-@api_faculty_required
-def api_fac_mark_att(sid):
-    conn = get_db_connection()
-    if request.method == 'GET':
-        subject = conn.execute('SELECT * FROM subjects WHERE id=?', (sid,)).fetchone()
-        students = conn.execute('''SELECT s.id, s.student_id, u.full_name, s.program, s.semester, COALESCE(a.total_classes, 0) as total_classes,
-            COALESCE(a.attended_classes, 0) as attended_classes, a.id as attendance_id FROM students s JOIN users u ON s.user_id = u.id
-            LEFT JOIN attendance a ON s.id = a.student_id AND a.subject_id = ? ORDER BY u.full_name''', (sid,)).fetchall()
-        conn.close()
-        return jsonify({'subject': dict(subject), 'students': [dict(x) for x in students]})
-    elif request.method == 'POST':
-        d = request.get_json()
-        attended = d.get('attended', [])
-        students = conn.execute('SELECT s.id, a.id as attendance_id FROM students s LEFT JOIN attendance a ON s.id = a.student_id AND a.subject_id = ?', (sid,)).fetchall()
+@app.route('/admin/add_user', methods=['GET', 'POST'])
+@admin_required
+def admin_add_user():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user_type = request.form['user_type']
+        full_name = request.form['full_name']
+        email = request.form['email']
+        
+        conn = get_db_connection()
         cursor = conn.cursor()
-        for st in students:
-            is_present = st['id'] in attended
-            if st['attendance_id']:
-                cursor.execute('UPDATE attendance SET total_classes = total_classes + 1, attended_classes = attended_classes + ? WHERE id = ?', (1 if is_present else 0, st['attendance_id']))
-            else:
-                cursor.execute('INSERT INTO attendance (student_id, subject_id, total_classes, attended_classes) VALUES (?, ?, 1, ?)', (st['id'], sid, 1 if is_present else 0))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True})
+        
+        try:
+            cursor.execute("INSERT INTO users (username, password, user_type, full_name, email) VALUES (?, ?, ?, ?, ?)",
+                           (username, password, user_type, full_name, email))
+            user_id = cursor.lastrowid
+            
+            if user_type == 'student':
+                student_id = request.form['student_id']
+                program = request.form['program']
+                semester = request.form['semester']
+                cgpa = request.form.get('cgpa', 0.0)
+                cursor.execute("INSERT INTO students (user_id, student_id, program, semester, cgpa) VALUES (?, ?, ?, ?, ?)",
+                               (user_id, student_id, program, semester, cgpa))
+            elif user_type == 'faculty':
+                faculty_id = request.form['faculty_id']
+                department = request.form['department']
+                designation = request.form['designation']
+                cursor.execute("INSERT INTO faculty (user_id, faculty_id, department, designation) VALUES (?, ?, ?, ?)",
+                               (user_id, faculty_id, department, designation))
+            
+            conn.commit()
+            flash(f'Successfully added {user_type}: {full_name}', 'success')
+        except sqlite3.IntegrityError:
+            flash('Username or ID already exists!', 'danger')
+        finally:
+            conn.close()
+            
+        return redirect(url_for('manage_users'))
+    
+    return redirect(url_for('manage_users'))
 
-@app.route('/api/faculty/assignments', methods=['GET', 'POST'])
-@api_login_required
-@api_faculty_required
-def api_fac_ass():
+@app.route('/admin/users')
+@admin_required
+def manage_users():
     conn = get_db_connection()
-    if request.method == 'GET':
-        ass = conn.execute('SELECT a.id, a.title, a.description, a.due_date, a.status, s.subject_name, s.subject_code FROM assignments a JOIN subjects s ON a.subject_id = s.id ORDER BY a.due_date DESC').fetchall()
-        subs = conn.execute('SELECT id, subject_name, subject_code FROM subjects').fetchall()
-        conn.close()
-        return jsonify({'assignments': [dict(x) for x in ass], 'subjects': [dict(x) for x in subs]})
-    elif request.method == 'POST':
-        d = request.get_json()
-        conn.execute("INSERT INTO assignments (subject_id, title, description, due_date, status) VALUES (?, ?, ?, ?, 'pending')",
-            (d['subject_id'], d['title'], d['description'], d['due_date']))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True})
-
-@app.route('/api/faculty/assignments/<int:aid>', methods=['PUT', 'DELETE'])
-@api_login_required
-@api_faculty_required
-def api_fac_ass_mod(aid):
-    conn = get_db_connection()
-    if request.method == 'PUT':
-        d = request.get_json()
-        conn.execute('UPDATE assignments SET title=?, description=?, due_date=?, status=? WHERE id=?', (d['title'], d['description'], d['due_date'], d['status'], aid))
-        conn.commit()
-        res = {'success': True}
-    elif request.method == 'DELETE':
-        conn.execute('DELETE FROM assignments WHERE id=?', (aid,))
-        conn.commit()
-        res = {'success': True}
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
+    users = cursor.fetchall()
     conn.close()
-    return jsonify(res)
+    return render_template('manage_users.html', users=users)
 
-@app.route('/api/faculty/reports', methods=['GET'])
-@api_login_required
-@api_faculty_required
-def api_fac_reports():
+@app.route('/admin/placements/manage')
+@admin_required
+def manage_placements():
     conn = get_db_connection()
-    st = conn.execute('SELECT s.id, s.student_id, u.full_name, s.program, s.semester, s.cgpa, u.email FROM students s JOIN users u ON s.user_id = u.id ORDER BY u.full_name').fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT pd.*, COUNT(dr.id) as registrations FROM placement_drives pd LEFT JOIN drive_registrations dr ON pd.id = dr.drive_id GROUP BY pd.id ORDER BY pd.drive_date ASC")
+    drives = cursor.fetchall()
     conn.close()
-    return jsonify([dict(x) for x in st])
+    return render_template('manage_placements.html', drives=drives)
 
-@app.route('/api/faculty/student/<int:sid>', methods=['GET'])
-@api_login_required
-@api_faculty_required
-def api_fac_student_det(sid):
+@app.route('/admin/events/manage')
+@admin_required
+def manage_events():
     conn = get_db_connection()
-    student = conn.execute('SELECT s.id, s.student_id, u.full_name, s.program, s.semester, s.cgpa, u.email FROM students s JOIN users u ON s.user_id = u.id WHERE s.id=?', (sid,)).fetchone()
-    att = conn.execute('SELECT s.subject_name, s.subject_code, a.total_classes, a.attended_classes, CAST(a.attended_classes AS FLOAT)/a.total_classes*100 as percentage FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id=?', (sid,)).fetchall()
-    ass = conn.execute('SELECT a.title, s.subject_name, a.due_date, a.status FROM assignments a JOIN subjects s ON a.subject_id = s.id ORDER BY a.due_date DESC').fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT e.*, COUNT(er.id) as registrations FROM events e LEFT JOIN event_registrations er ON e.id = er.event_id GROUP BY e.id ORDER BY e.event_date ASC")
+    events = cursor.fetchall()
     conn.close()
-    return jsonify({'student': dict(student), 'attendance': [dict(x) for x in att], 'assignments': [dict(x) for x in ass]})
+    return render_template('manage_events.html', events=events)
+
+@app.route('/admin/announcements')
+@admin_required
+def announcements():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM announcements ORDER BY created_at DESC")
+    announcements = cursor.fetchall()
+    conn.close()
+    return render_template('announcements.html', announcements=announcements)
+
+@app.route('/admin/students')
+@admin_required
+def admin_students():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.id, u.full_name, s.student_id, s.program, s.semester, s.cgpa 
+        FROM students s 
+        JOIN users u ON s.user_id = u.id
+    """)
+    students = cursor.fetchall()
+    conn.close()
+    return render_template('admin_students.html', students=students)
+
+@app.route('/admin/faculties')
+@admin_required
+def admin_faculties():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT f.id, u.full_name, f.faculty_id, f.department, f.designation, u.email
+        FROM faculty f 
+        JOIN users u ON f.user_id = u.id
+    """)
+    faculties = cursor.fetchall()
+    conn.close()
+    return render_template('admin_faculties.html', faculties=faculties)
+
+@app.route('/admin/placements')
+@admin_required
+def admin_placements():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM placement_drives ORDER BY drive_date ASC")
+    drives = cursor.fetchall()
+    conn.close()
+    return render_template('admin_placements.html', drives=drives)
+
+@app.route('/admin/student/<int:student_id>')
+@admin_required
+def admin_student_detail(student_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get student info
+    cursor.execute("""
+        SELECT s.*, u.full_name, u.email 
+        FROM students s 
+        JOIN users u ON s.user_id = u.id 
+        WHERE s.id = ?
+    """, (student_id,))
+    student = cursor.fetchone()
+    
+    if not student:
+        conn.close()
+        flash('Student not found!', 'danger')
+        return redirect(url_for('admin_students'))
+    
+    # Get attendance
+    cursor.execute("""
+        SELECT a.*, s.subject_name, s.subject_code 
+        FROM attendance a 
+        JOIN subjects s ON a.subject_id = s.id 
+        WHERE a.student_id = ?
+    """, (student_id,))
+    attendance = cursor.fetchall()
+    
+    conn.close()
+    return render_template('student_detail.html', student=student, attendance=attendance, admin_view=True)
+
+@app.route('/admin/add_drive', methods=['POST'])
+@admin_required
+def admin_add_drive():
+    company_name = request.form['company_name']
+    position = request.form['position']
+    eligibility = request.form['eligibility']
+    drive_date = request.form['drive_date']
+    min_cgpa = request.form['min_cgpa']
+    status = request.form['status']
+    description = request.form['description']
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO placement_drives (company_name, position, eligibility_criteria, drive_date, status, min_cgpa, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (company_name, position, eligibility, drive_date, status, min_cgpa, description))
+    conn.commit()
+    conn.close()
+    flash('Placement drive added successfully!', 'success')
+    return redirect(url_for('manage_placements'))
+
+@app.route('/admin/delete_drive/<int:drive_id>')
+@admin_required
+def admin_delete_drive(drive_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM placement_drives WHERE id = ?", (drive_id,))
+    cursor.execute("DELETE FROM drive_registrations WHERE drive_id = ?", (drive_id,))
+    conn.commit()
+    conn.close()
+    flash('Placement drive removed!', 'info')
+    return redirect(url_for('manage_placements'))
+
+@app.route('/admin/add_event', methods=['POST'])
+@admin_required
+def admin_add_event():
+    event_name = request.form['event_name']
+    event_type = request.form['event_type']
+    event_date = request.form['event_date']
+    location = request.form['location']
+    description = request.form['description']
+    organizer = request.form['organizer']
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO events (event_name, event_type, event_date, location, description, organizer)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (event_name, event_type, event_date, location, description, organizer))
+    conn.commit()
+    conn.close()
+    flash('Event added successfully!', 'success')
+    return redirect(url_for('manage_events'))
+
+@app.route('/admin/delete_event/<int:event_id>')
+@admin_required
+def admin_delete_event(event_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM events WHERE id = ?", (event_id,))
+    cursor.execute("DELETE FROM event_registrations WHERE event_id = ?", (event_id,))
+    conn.commit()
+    conn.close()
+    flash('Event removed!', 'info')
+    return redirect(url_for('manage_events'))
+
+@app.route('/admin/add_announcement', methods=['POST'])
+@admin_required
+def admin_add_announcement():
+    title = request.form['title']
+    content = request.form['content']
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO announcements (title, content) VALUES (?, ?)", (title, content))
+    conn.commit()
+    conn.close()
+    flash('Announcement posted!', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/delete_announcement/<int:ann_id>')
+@admin_required
+def admin_delete_announcement(ann_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM announcements WHERE id = ?", (ann_id,))
+    conn.commit()
+    conn.close()
+    flash('Announcement removed!', 'info')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/remove-student/<int:student_id>', methods=['POST'])
+@admin_required
+def admin_remove_student(student_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get user_id before deleting student record
+        cursor.execute("SELECT user_id FROM students WHERE id = ?", (student_id,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['user_id']
+            
+            # Delete related records
+            cursor.execute("DELETE FROM attendance WHERE student_id = ?", (student_id,))
+            cursor.execute("DELETE FROM drive_registrations WHERE student_id = ?", (student_id,))
+            cursor.execute("DELETE FROM event_registrations WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            
+            conn.commit()
+            flash('Student and all related records removed successfully!', 'success')
+        else:
+            flash('Student not found!', 'danger')
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+    finally:
+        conn.close()
+        
+    return redirect(url_for('admin_students'))
+
+@app.route('/admin/remove-faculty/<int:faculty_id>', methods=['POST'])
+@admin_required
+def admin_remove_faculty(faculty_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get user_id before deleting faculty record
+        cursor.execute("SELECT user_id FROM faculty WHERE id = ?", (faculty_id,))
+        row = cursor.fetchone()
+        if row:
+            user_id = row['user_id']
+            
+            # Delete related records
+            cursor.execute("DELETE FROM event_registrations WHERE user_id = ?", (user_id,))
+            cursor.execute("DELETE FROM faculty WHERE id = ?", (faculty_id,))
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            
+            conn.commit()
+            flash('Faculty member and all related records removed successfully!', 'success')
+        else:
+            flash('Faculty not found!', 'danger')
+    except Exception as e:
+        conn.rollback()
+        flash(f'An error occurred: {str(e)}', 'danger')
+    finally:
+        conn.close()
+        
+    return redirect(url_for('admin_faculties'))
 
 # ==================== INITIALIZE DATABASE ON FIRST RUN ====================
 
@@ -734,6 +1100,355 @@ if not os.path.exists('database'):
 
 if not os.path.exists(DATABASE):
     init_db()
+
+# ==================== FACULTY ROUTES ====================
+
+@app.route('/faculty/classes')
+@login_required
+def faculty_classes():
+    """Get faculty classes for popup"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    
+    # Get all subjects (in real app, filter by faculty)
+    classes = conn.execute('''
+        SELECT 
+            s.id,
+            s.subject_code,
+            s.subject_name,
+            s.credits,
+            COUNT(DISTINCT st.id) as student_count
+        FROM subjects s
+        LEFT JOIN attendance a ON s.id = a.subject_id
+        LEFT JOIN students st ON a.student_id = st.id
+        GROUP BY s.id
+    ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty_classes_popup.html', classes=classes)
+
+
+@app.route('/faculty/dashboard')
+@login_required
+def faculty_dashboard():
+    """Faculty dashboard page"""
+    if session.get('user_type') != 'faculty':
+        flash('This page is only accessible to faculty.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    conn = get_db_connection()
+
+    # Get faculty record for current user
+    faculty = conn.execute(
+        'SELECT f.*, u.full_name FROM faculty f JOIN users u ON f.user_id = u.id WHERE f.user_id = ?',
+        (session['user_id'],)
+    ).fetchone()
+
+    # Get subjects (in this simplified app we show all subjects)
+    subjects = conn.execute('SELECT id, subject_name, subject_code, credits FROM subjects').fetchall()
+
+    # Total students
+    total_students = conn.execute('SELECT COUNT(*) FROM students').fetchone()[0]
+
+    # Assignments and recent assignments
+    assignments = conn.execute('''
+        SELECT a.id, a.title, a.description, a.due_date, a.status, s.subject_name
+        FROM assignments a
+        JOIN subjects s ON a.subject_id = s.id
+        ORDER BY a.due_date DESC
+    ''').fetchall()
+    recent_assignments = assignments[:5]
+
+    # Upcoming events
+    upcoming_events = conn.execute("SELECT * FROM events WHERE event_date >= date('now') ORDER BY event_date ASC").fetchall()
+
+    conn.close()
+
+    current_user = {'full_name': session.get('full_name')}
+
+    return render_template('faculty_dashboard.html',
+                           current_user=current_user,
+                           faculty=faculty,
+                           subjects=subjects,
+                           total_students=total_students,
+                           assignments=assignments,
+                           recent_assignments=recent_assignments,
+                           upcoming_events=upcoming_events)
+
+
+@app.route('/faculty/mark-attendance/<int:subject_id>')
+@login_required
+def mark_attendance(subject_id):
+    """Show attendance marking form"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    
+    # Get subject details
+    subject = conn.execute('SELECT * FROM subjects WHERE id = ?', (subject_id,)).fetchone()
+    
+    # Get all students with their attendance for this subject
+    students = conn.execute('''
+        SELECT 
+            s.id,
+            s.student_id,
+            u.full_name,
+            s.program,
+            s.semester,
+            COALESCE(a.total_classes, 0) as total_classes,
+            COALESCE(a.attended_classes, 0) as attended_classes,
+            a.id as attendance_id
+        FROM students s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN attendance a ON s.id = a.student_id AND a.subject_id = ?
+        ORDER BY u.full_name
+    ''', (subject_id,)).fetchall()
+    
+    conn.close()
+    
+    return render_template('mark_attendance_popup.html', subject=subject, students=students)
+
+
+@app.route('/faculty/save-attendance', methods=['POST'])
+@login_required
+def save_attendance():
+    """Save attendance marks"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    subject_id = request.form.get('subject_id')
+    attended_students = request.form.getlist('attended[]')  # List of student IDs who attended
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Get all students for this subject
+    students = conn.execute('''
+        SELECT s.id, a.id as attendance_id
+        FROM students s
+        LEFT JOIN attendance a ON s.id = a.student_id AND a.subject_id = ?
+    ''', (subject_id,)).fetchall()
+    
+    for student in students:
+        student_id = student['id']
+        attendance_id = student['attendance_id']
+        is_present = str(student_id) in attended_students
+        
+        if attendance_id:
+            # Update existing record
+            cursor.execute('''
+                UPDATE attendance 
+                SET total_classes = total_classes + 1,
+                    attended_classes = attended_classes + ?
+                WHERE id = ?
+            ''', (1 if is_present else 0, attendance_id))
+        else:
+            # Create new record
+            cursor.execute('''
+                INSERT INTO attendance (student_id, subject_id, total_classes, attended_classes)
+                VALUES (?, ?, 1, ?)
+            ''', (student_id, subject_id, 1 if is_present else 0))
+    
+    conn.commit()
+    conn.close()
+    
+    flash('Attendance marked successfully!', 'success')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/faculty/assignments')
+@login_required
+def faculty_assignments():
+    """Get all assignments for faculty"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    
+    assignments = conn.execute('''
+        SELECT 
+            a.id,
+            a.title,
+            a.description,
+            a.due_date,
+            a.status,
+            s.subject_name,
+            s.subject_code
+        FROM assignments a
+        JOIN subjects s ON a.subject_id = s.id
+        ORDER BY a.due_date DESC
+    ''').fetchall()
+    
+    # Get subjects for the add form
+    subjects = conn.execute('SELECT id, subject_name, subject_code FROM subjects').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty_assignments_popup.html', assignments=assignments, subjects=subjects)
+
+
+@app.route('/faculty/add-assignment', methods=['POST'])
+@login_required
+def add_assignment():
+    """Add new assignment"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    subject_id = request.form.get('subject_id')
+    title = request.form.get('title')
+    description = request.form.get('description')
+    due_date = request.form.get('due_date')
+    
+    conn = get_db_connection()
+    conn.execute('''
+        INSERT INTO assignments (subject_id, title, description, due_date, status)
+        VALUES (?, ?, ?, ?, 'pending')
+    ''', (subject_id, title, description, due_date))
+    conn.commit()
+    conn.close()
+    
+    flash('Assignment added successfully!', 'success')
+    return redirect(url_for('faculty_assignments'))
+
+
+@app.route('/faculty/edit-assignment/<int:assignment_id>', methods=['POST'])
+@login_required
+def edit_assignment(assignment_id):
+    """Edit existing assignment"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    title = request.form.get('title')
+    description = request.form.get('description')
+    due_date = request.form.get('due_date')
+    status = request.form.get('status')
+    
+    conn = get_db_connection()
+    conn.execute('''
+        UPDATE assignments 
+        SET title = ?, description = ?, due_date = ?, status = ?
+        WHERE id = ?
+    ''', (title, description, due_date, status, assignment_id))
+    conn.commit()
+    conn.close()
+    
+    flash('Assignment updated successfully!', 'success')
+    return redirect(url_for('faculty_assignments'))
+
+
+@app.route('/faculty/delete-assignment/<int:assignment_id>', methods=['POST'])
+@login_required
+def delete_assignment(assignment_id):
+    """Delete assignment"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    conn.execute('DELETE FROM assignments WHERE id = ?', (assignment_id,))
+    conn.commit()
+    conn.close()
+    
+    flash('Assignment deleted successfully!', 'success')
+    return redirect(url_for('faculty_assignments'))
+
+
+@app.route('/faculty/reports')
+@login_required
+def faculty_reports():
+    """View all students and their reports"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    
+    # Get all students with basic info
+    students = conn.execute('''
+        SELECT 
+            s.id,
+            s.student_id,
+            u.full_name,
+            s.program,
+            s.semester,
+            s.cgpa,
+            u.email
+        FROM students s
+        JOIN users u ON s.user_id = u.id
+        ORDER BY u.full_name
+    ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty_reports_popup.html', students=students)
+
+
+@app.route('/faculty/student-detail/<int:student_id>')
+@login_required
+def student_detail(student_id):
+    """Get detailed report for a specific student"""
+    if session['user_type'] != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('dashboard'))
+    
+    conn = get_db_connection()
+    
+    # Get student info
+    student = conn.execute('''
+        SELECT 
+            s.id,
+            s.student_id,
+            u.full_name,
+            s.program,
+            s.semester,
+            s.cgpa,
+            u.email
+        FROM students s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.id = ?
+    ''', (student_id,)).fetchone()
+    
+    # Get attendance details
+    attendance = conn.execute('''
+        SELECT 
+            s.subject_name,
+            s.subject_code,
+            a.total_classes,
+            a.attended_classes,
+            CAST(a.attended_classes AS FLOAT) / a.total_classes * 100 as percentage
+        FROM attendance a
+        JOIN subjects s ON a.subject_id = s.id
+        WHERE a.student_id = ?
+    ''', (student_id,)).fetchall()
+    
+    # Get assignments status
+    assignments = conn.execute('''
+        SELECT 
+            a.title,
+            s.subject_name,
+            a.due_date,
+            a.status
+        FROM assignments a
+        JOIN subjects s ON a.subject_id = s.id
+        ORDER BY a.due_date DESC
+    ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('student_detail_popup.html', 
+                         student=student, 
+                         attendance=attendance,
+                         assignments=assignments)
 
 # ==================== RUN APPLICATION ====================
 

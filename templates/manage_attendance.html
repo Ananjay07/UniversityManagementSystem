@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Attendance - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Manage Attendance</h1>
+    <p class="text-muted">Mark and update student attendance</p>
+</div>
+
+<div class="management-section">
+    <!-- Subject Selection -->
+    <div class="filters-section">
+        <h2>Select Subject</h2>
+        <select id="subjectSelect" class="filter-select" style="min-width: 300px;">
+            <option value="">Choose a subject</option>
+            {% for subject in subjects %}
+            <option value="{{ subject.id }}">{{ subject.subject_name }} ({{ subject.subject_code }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Attendance Update Form -->
+    <div id="attendanceForm" class="form-section" style="display: none;">
+        <h2>Update Attendance</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Student Name</th>
+                    <th>Total Classes</th>
+                    <th>Classes Attended</th>
+                    <th>Percentage</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="attendanceBody">
+                <!-- Will be populated via JavaScript -->
+            </tbody>
+        </table>
+        <div class="form-actions">
+            <button type="button" class="btn btn-success" id="saveAttendance">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
+            <button type="button" class="btn btn-secondary" id="resetAttendance">
+                <i class="fas fa-redo"></i> Reset
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('subjectSelect').addEventListener('change', function() {
+    const subjectId = this.value;
+    if (subjectId) {
+        fetch(`/api/attendance/${subjectId}`)
+            .then(response => response.json())
+            .then(data => {
+                populateAttendanceTable(data);
+                document.getElementById('attendanceForm').style.display = 'block';
+            });
+    } else {
+        document.getElementById('attendanceForm').style.display = 'none';
+    }
+});
+
+function populateAttendanceTable(attendance) {
+    const tbody = document.getElementById('attendanceBody');
+    tbody.innerHTML = '';
+    
+    attendance.forEach(att => {
+        const percentage = att.total_classes > 0 
+            ? Math.round((att.attended_classes / att.total_classes) * 100)
+            : 0;
+        
+        const row = `
+            <tr>
+                <td>${att.student.student_id}</td>
+                <td>${att.student.user.full_name}</td>
+                <td>
+                    <input type="number" class="total-classes" value="${att.total_classes}" min="0" data-attendance-id="${att.id}">
+                </td>
+                <td>
+                    <input type="number" class="attended-classes" value="${att.attended_classes}" min="0" data-attendance-id="${att.id}">
+                </td>
+                <td class="percentage" data-attendance-id="${att.id}">${percentage}%</td>
+                <td>
+                    <button type="button" class="btn btn-sm btn-primary update-attendance" data-attendance-id="${att.id}">
+                        <i class="fas fa-check"></i> Update
+                    </button>
+                </td>
+            </tr>
+        `;
+        tbody.innerHTML += row;
+    });
+
+    // Add event listeners
+    document.querySelectorAll('.attended-classes, .total-classes').forEach(input => {
+        input.addEventListener('change', updatePercentage);
+    });
+
+    document.querySelectorAll('.update-attendance').forEach(btn => {
+        btn.addEventListener('click', updateAttendance);
+    });
+}
+
+function updatePercentage(e) {
+    const input = e.target;
+    const row = input.closest('tr');
+    const totalClasses = parseInt(row.querySelector('.total-classes').value) || 0;
+    const attendedClasses = parseInt(row.querySelector('.attended-classes').value) || 0;
+    const percentage = totalClasses > 0 ? Math.round((attendedClasses / totalClasses) * 100) : 0;
+    row.querySelector('.percentage').textContent = percentage + '%';
+}
+
+function updateAttendance(e) {
+    const btn = e.target.closest('button');
+    const attendanceId = btn.getAttribute('data-attendance-id');
+    const row = btn.closest('tr');
+    const totalClasses = parseInt(row.querySelector('.total-classes').value);
+    const attendedClasses = parseInt(row.querySelector('.attended-classes').value);
+
+    fetch(`/api/attendance/${attendanceId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            total_classes: totalClasses,
+            attended_classes: attendedClasses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showNotification('Attendance updated successfully', 'success');
+        }
+    });
+}
+
+document.getElementById('saveAttendance').addEventListener('click', function() {
+    document.querySelectorAll('.update-attendance').forEach(btn => {
+        btn.click();
+    });
+});
+
+document.getElementById('resetAttendance').addEventListener('click', function() {
+    location.reload();
+});
+</script>
+
+<style>
+.filters-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    margin-bottom: 2rem;
+}
+
+.form-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.percentage {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+input[type="number"] {
+    width: 100%;
+    max-width: 80px;
+}
+
+@media (max-width: 768px) {
+    table {
+        font-size: 0.85rem;
+    }
+
+    input[type="number"] {
+        max-width: 60px;
+    }
+}
+</style>
+{% endblock %}

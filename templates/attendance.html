@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>My Attendance</h1>
+    <p class="text-muted">Track your class attendance</p>
+</div>
+
+<div class="attendance-section">
+    <div class="filters">
+        <input type="text" id="searchSubject" placeholder="Search subject..." class="search-box">
+        <select id="filterSemester" class="filter-select">
+            <option value="">All Semesters</option>
+            <option value="1">Semester 1</option>
+            <option value="2">Semester 2</option>
+            <option value="3">Semester 3</option>
+            <option value="4">Semester 4</option>
+            <option value="5">Semester 5</option>
+            <option value="6">Semester 6</option>
+            <option value="7">Semester 7</option>
+            <option value="8">Semester 8</option>
+        </select>
+    </div>
+
+    <div class="attendance-grid">
+        {% for att in attendance %}
+        <div class="attendance-card">
+            <div class="card-header">
+                <h3>{{ att.subject.subject_name }}</h3>
+                <span class="badge badge-primary">{{ att.subject.subject_code }}</span>
+            </div>
+            <div class="card-body">
+                <div class="attendance-stat">
+                    <label>Total Classes:</label>
+                    <span class="stat-value">{{ att.total_classes }}</span>
+                </div>
+                <div class="attendance-stat">
+                    <label>Classes Attended:</label>
+                    <span class="stat-value">{{ att.attended_classes }}</span>
+                </div>
+                <div class="attendance-stat">
+                    <label>Attendance Percentage:</label>
+                    <span class="stat-value percentage">
+                        {% set percentage = (att.attended_classes / att.total_classes * 100)|int %}
+                        {{ percentage }}%
+                    </span>
+                </div>
+                <div class="attendance-bar">
+                    <div class="progress" style="width: {{ (att.attended_classes / att.total_classes * 100)|int }}%"></div>
+                </div>
+                {% if percentage < 75 %}
+                <div class="alert alert-warning mt-2">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Your attendance is below 75%. Please attend classes regularly.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if not attendance %}
+    <div class="empty-state">
+        <i class="fas fa-inbox"></i>
+        <h3>No Attendance Records</h3>
+        <p>You are not enrolled in any subjects yet.</p>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.page-header {
+    margin-bottom: 2rem;
+}
+
+.page-header h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.filters {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.search-box {
+    flex: 1;
+    min-width: 200px;
+}
+
+.filter-select {
+    min-width: 150px;
+}
+
+.attendance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.attendance-card {
+    background: white;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
+}
+
+.attendance-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.15);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    color: white;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.card-body {
+    padding: 1.5rem;
+}
+
+.attendance-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.attendance-stat label {
+    margin: 0;
+    color: var(--text-light);
+    font-weight: 500;
+}
+
+.stat-value {
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: var(--text-color);
+}
+
+.stat-value.percentage {
+    color: var(--primary-color);
+}
+
+.attendance-bar {
+    width: 100%;
+    height: 25px;
+    background: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 1rem 0;
+}
+
+.progress {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+    transition: width 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-light);
+}
+
+.empty-state i {
+    font-size: 3rem;
+    color: var(--border-color);
+    margin-bottom: 1rem;
+}
+
+.empty-state h3 {
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .filters {
+        flex-direction: column;
+    }
+
+    .search-box, .filter-select {
+        min-width: 100%;
+    }
+
+    .attendance-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}

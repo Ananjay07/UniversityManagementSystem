@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Events - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Manage Events</h1>
+    <p class="text-muted">Create and manage university events</p>
+</div>
+
+<div class="management-section">
+    <!-- Create Event Form -->
+    <div class="form-section">
+        <h2>Create New Event</h2>
+        <form method="POST" action="{{ url_for('admin_add_event') }}" class="form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="event_name">Event Name</label>
+                    <input type="text" id="event_name" name="event_name" required placeholder="Enter event name">
+                </div>
+
+                <div class="form-group">
+                    <label for="event_type">Event Type</label>
+                    <select id="event_type" name="event_type" required>
+                        <option value="">Select type</option>
+                        <option value="Technical">Technical</option>
+                        <option value="Cultural">Cultural</option>
+                        <option value="Sports">Sports</option>
+                        <option value="Workshop">Workshop</option>
+                        <option value="Competition">Competition</option>
+                        <option value="Placement">Placement</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="event_date">Event Date</label>
+                    <input type="date" id="event_date" name="event_date" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <input type="text" id="location" name="location" required placeholder="e.g., Main Auditorium">
+                </div>
+
+                <div class="form-group">
+                    <label for="organizer">Organizer</label>
+                    <input type="text" id="organizer" name="organizer" required placeholder="e.g., CSE Department">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description</label>
+                <textarea id="description" name="description" placeholder="Event description and details" required></textarea>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Create Event
+                </button>
+                <button type="reset" class="btn btn-secondary">
+                    <i class="fas fa-redo"></i> Reset
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Events List -->
+    <div class="list-section">
+        <h2>All Events</h2>
+        {% if events %}
+        <table>
+            <thead>
+                <tr>
+                    <th data-sortable>Event Name</th>
+                    <th data-sortable>Type</th>
+                    <th data-sortable>Date</th>
+                    <th>Location</th>
+                    <th>Registrations</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in events %}
+                <tr>
+                    <td>{{ event.event_name }}</td>
+                    <td>
+                        <span class="badge badge-primary">{{ event.event_type }}</span>
+                    </td>
+                    <td>{{ event.event_date }}</td>
+                    <td>{{ event.location }}</td>
+                    <td>{{ event.registrations }}</td>
+                    <td class="action-buttons">
+                        <a href="{{ url_for('admin_delete_event', event_id=event.id) }}" class="btn btn-sm btn-danger" data-action="delete" data-confirm="Are you sure?">
+                            <i class="fas fa-trash"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted">No events created yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.management-section {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+}
+
+.form-section,
+.list-section {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+}
+
+.form {
+    max-width: 800px;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}

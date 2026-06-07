@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Assignments - UMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Assignments</h1>
+    <p class="text-muted">View and manage your assignments</p>
+</div>
+
+<div class="assignments-section">
+    <div class="filters">
+        <select id="filterStatus" class="filter-select">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="submitted">Submitted</option>
+            <option value="completed">Completed</option>
+        </select>
+        <input type="date" id="filterDate" class="filter-select">
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="pending">
+            <i class="fas fa-hourglass-end"></i> Pending
+        </button>
+        <button class="tab-btn" data-tab="completed">
+            <i class="fas fa-check"></i> Completed
+        </button>
+        <button class="tab-btn" data-tab="all">
+            <i class="fas fa-list"></i> All
+        </button>
+    </div>
+
+    <div class="assignments-list">
+        {% if assignments %}
+            {% for assignment in assignments %}
+            <div class="assignment-card" data-status="{{ assignment.status }}">
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <h3>{{ assignment.title }}</h3>
+                            <p class="subject-label">{{ assignment.subject.subject_name }}</p>
+                        </div>
+                        <span class="badge badge-{{ 'danger' if assignment.status == 'pending' else 'success' }}">
+                            {{ assignment.status|upper }}
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <p>{{ assignment.description }}</p>
+                        <div class="assignment-meta">
+                            <div class="meta-item">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>Due: <strong>{{ assignment.due_date }}</strong></span>
+                            </div>
+                            {% set days_left = (assignment.due_date - today).days %}
+                            {% if days_left >= 0 %}
+                            <div class="meta-item">
+                                <i class="fas fa-clock"></i>
+                                <span>{{ days_left }} day(s) left</span>
+                            </div>
+                            {% else %}
+                            <div class="meta-item text-danger">
+                                <i class="fas fa-exclamation-circle"></i>
+                                <span>{{ -days_left }} day(s) overdue</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <a href="#" class="btn btn-sm btn-primary">
+                            <i class="fas fa-download"></i> Download
+                        </a>
+                        {% if assignment.status == 'pending' %}
+                        <a href="#" class="btn btn-sm btn-success">
+                            <i class="fas fa-upload"></i> Submit
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <i class="fas fa-tasks"></i>
+            <h3>No Assignments</h3>
+            <p>There are no assignments to display.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.filters {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+}
+
+.filter-select {
+    min-width: 150px;
+}
+
+.tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tab-btn {
+    padding: 1rem 1.5rem;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--text-light);
+    transition: var(--transition);
+}
+
+.tab-btn:hover {
+    color: var(--primary-color);
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.assignments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.assignment-card {
+    animation: fadeIn 0.3s ease;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.card-header h3 {
+    margin: 0 0 0.5rem 0;
+}
+
+.subject-label {
+    margin: 0;
+    color: var(--primary-color);
+    font-size: 0.9rem;
+}
+
+.assignment-meta {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.meta-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-light);
+}
+
+.meta-item i {
+    color: var(--primary-color);
+}
+
+.meta-item.text-danger {
+    color: var(--danger-color);
+}
+
+.meta-item.text-danger i {
+    color: var(--danger-color);
+}
+
+.card-footer {
+    display: flex;
+    gap: 1rem;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-light);
+}
+
+.empty-state i {
+    font-size: 3rem;
+    color: var(--border-color);
+    margin-bottom: 1rem;
+}
+
+.empty-state h3 {
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .tabs {
+        flex-wrap: wrap;
+    }
+
+    .assignment-meta {
+        gap: 1rem;
+    }
+
+    .card-header {
+        flex-direction: column;
+    }
+}
+</style>
+{% endblock %}

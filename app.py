@@ -425,142 +425,157 @@ def profile():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    """Main dashboard with 3 tiles"""
-    # Redirect admins to admin dashboard
+    """Main dashboard for students (redirects admins and faculty)"""
     if session.get('user_type') == 'admin':
         return redirect(url_for('admin_dashboard'))
+    elif session.get('user_type') == 'faculty':
+        return redirect(url_for('faculty_dashboard'))
         
     conn = get_db_connection()
     
-    # Get student/faculty specific data
-    if session['user_type'] == 'student':
-        student = conn.execute('''
-            SELECT s.* FROM students s
-            WHERE s.user_id = ?
-        ''', (session['user_id'],)).fetchone()
-        
-        # Get attendance summary
-        attendance_summary = conn.execute('''
-            SELECT 
-                COUNT(*) as total_subjects,
-                AVG(CAST(attended_classes AS FLOAT) / total_classes * 100) as avg_attendance
-            FROM attendance
-            WHERE student_id = ?
-        ''', (student['id'],)).fetchone()
-        
-        # Get pending assignments count
-        pending_assignments = conn.execute('''
-            SELECT COUNT(*) as count FROM assignments
-            WHERE status = 'pending' AND due_date >= date('now')
-        ''').fetchone()
-        
-        # Get upcoming placement drives count
-        eligible_drives = conn.execute('''
-            SELECT COUNT(*) as count FROM placement_drives
-            WHERE status = 'Open' AND min_cgpa <= ?
-        ''', (student['cgpa'],)).fetchone()
-        
-        # Get upcoming events count
-        upcoming_events = conn.execute('''
-            SELECT COUNT(*) as count FROM events
-            WHERE event_date >= date('now')
-        ''').fetchone()
-        
-        # Get recent announcements
-        announcements = conn.execute('''
-            SELECT * FROM announcements 
-            ORDER BY created_at DESC 
-            LIMIT 5
-        ''').fetchall()
-        
-        conn.close()
-        
-        dashboard_data = {
-            'student': student,
-            'attendance_summary': attendance_summary,
-            'pending_assignments': pending_assignments['count'],
-            'eligible_drives': eligible_drives['count'],
-            'upcoming_events': upcoming_events['count'],
-            'announcements': announcements
-        }
-        
-        return render_template('dashboard.html', data=dashboard_data)
+    student = conn.execute('SELECT * FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
     
-    else:  # Faculty
-        faculty = conn.execute('''
-            SELECT f.* FROM faculty f
-            WHERE f.user_id = ?
-        ''', (session['user_id'],)).fetchone()
-        
-        # Get recent announcements
-        announcements = conn.execute('''
-            SELECT * FROM announcements 
-            ORDER BY created_at DESC 
-            LIMIT 5
-        ''').fetchall()
-        
-        conn.close()
-        
-        dashboard_data = {
-            'faculty': faculty,
-            'announcements': announcements
-        }
-        
-        return render_template('dashboard_faculty.html', data=dashboard_data)
-
-@app.route('/academics')
-@login_required
-@student_required
-def academics():
-    """Academics page - detailed view"""
-    conn = get_db_connection()
-    
-    # Get student info
-    student = conn.execute('''
-        SELECT s.* FROM students s
-        WHERE s.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    
-    # Get detailed attendance with subject info
-    attendance_data = conn.execute('''
-        SELECT 
-            s.subject_name,
-            s.subject_code,
-            a.total_classes,
-            a.attended_classes,
-            CAST(a.attended_classes AS FLOAT) / a.total_classes * 100 as percentage
+    # Get attendance data
+    attendance_rows = conn.execute('''
+        SELECT s.subject_name, s.subject_code, a.total_classes, a.attended_classes
         FROM attendance a
         JOIN subjects s ON a.subject_id = s.id
         WHERE a.student_id = ?
-        ORDER BY percentage DESC
     ''', (student['id'],)).fetchall()
     
-    # Get all assignments
-    assignments = conn.execute('''
-        SELECT 
-            a.id,
-            a.title,
-            a.description,
-            a.due_date,
-            a.status,
-            s.subject_name
+    attendance = []
+    for row in attendance_rows:
+        attendance.append({
+            'total_classes': row['total_classes'],
+            'attended_classes': row['attended_classes'],
+            'subject': {
+                'subject_name': row['subject_name'],
+                'subject_code': row['subject_code']
+            }
+        })
+        
+    # Calculate avg attendance percentage
+    total_classes_sum = sum(row['total_classes'] for row in attendance_rows)
+    attended_classes_sum = sum(row['attended_classes'] for row in attendance_rows)
+    avg_attendance = (attended_classes_sum / total_classes_sum * 100) if total_classes_sum > 0 else 0.0
+    
+    # Get pending assignments
+    assignment_rows = conn.execute('''
+        SELECT a.id, a.title, a.due_date, a.status, s.subject_name
         FROM assignments a
         JOIN subjects s ON a.subject_id = s.id
-        WHERE a.due_date >= date('now')
+        WHERE a.status = 'pending' AND a.due_date >= date('now')
         ORDER BY a.due_date ASC
     ''').fetchall()
     
+    pending_assignments = []
+    for row in assignment_rows:
+        pending_assignments.append({
+            'id': row['id'],
+            'title': row['title'],
+            'due_date': row['due_date'],
+            'subject': {
+                'subject_name': row['subject_name']
+            }
+        })
+        
+    # Registered drives count
+    registered_drives = conn.execute('''
+        SELECT COUNT(*) FROM drive_registrations
+        WHERE student_id = ?
+    ''', (student['id'],)).fetchone()[0]
+    
+    # Upcoming and registered events
+    upcoming_events = conn.execute('''
+        SELECT * FROM events
+        WHERE event_date >= date('now')
+        ORDER BY event_date ASC
+    ''').fetchall()
+    
+    registered_events = [row['event_id'] for row in conn.execute('''
+        SELECT event_id FROM event_registrations
+        WHERE user_id = ?
+    ''', (session['user_id'],)).fetchall()]
+    
     conn.close()
     
-    return render_template('academics.html', 
-                         student=student, 
-                         attendance=attendance_data, 
-                         assignments=assignments)
+    current_user = {'full_name': session.get('full_name')}
+    
+    return render_template('student_dashboard.html',
+                           current_user=current_user,
+                           student=student,
+                           attendance=attendance,
+                           avg_attendance=avg_attendance,
+                           pending_assignments=pending_assignments,
+                           registered_drives=registered_drives,
+                           upcoming_events=upcoming_events,
+                           registered_events=registered_events)
+
+@app.route('/attendance')
+@login_required
+@student_required
+def view_attendance():
+    """Student view attendance page"""
+    conn = get_db_connection()
+    student = conn.execute('SELECT id FROM students WHERE user_id = ?', (session['user_id'],)).fetchone()
+    
+    attendance_rows = conn.execute('''
+        SELECT s.subject_name, s.subject_code, a.total_classes, a.attended_classes
+        FROM attendance a
+        JOIN subjects s ON a.subject_id = s.id
+        WHERE a.student_id = ?
+    ''', (student['id'],)).fetchall()
+    
+    attendance = []
+    for row in attendance_rows:
+        attendance.append({
+            'total_classes': row['total_classes'],
+            'attended_classes': row['attended_classes'],
+            'subject': {
+                'subject_name': row['subject_name'],
+                'subject_code': row['subject_code']
+            }
+        })
+    conn.close()
+    return render_template('attendance.html', attendance=attendance)
+
+@app.route('/assignments')
+@login_required
+@student_required
+def view_assignments():
+    """Student view assignments page"""
+    conn = get_db_connection()
+    assignment_rows = conn.execute('''
+        SELECT a.id, a.title, a.description, a.due_date, a.status, s.subject_name
+        FROM assignments a
+        JOIN subjects s ON a.subject_id = s.id
+        ORDER BY a.due_date ASC
+    ''').fetchall()
+    
+    assignments = []
+    for row in assignment_rows:
+        try:
+            due_date_obj = datetime.strptime(row['due_date'], '%Y-%m-%d').date()
+        except Exception:
+            due_date_obj = datetime.now().date()
+            
+        assignments.append({
+            'id': row['id'],
+            'title': row['title'],
+            'description': row['description'],
+            'due_date': due_date_obj,
+            'status': row['status'],
+            'subject': {
+                'subject_name': row['subject_name']
+            }
+        })
+    conn.close()
+    return render_template('assignments.html', assignments=assignments, today=datetime.now().date())
 
 @app.route('/placements')
 @login_required
 @student_required
-def placements():
+def view_placements():
     """Placement portal page"""
     conn = get_db_connection()
     
@@ -614,7 +629,7 @@ def placements():
 @app.route('/apply-drive', methods=['POST'])
 @login_required
 @student_required
-def apply_drive():
+def register_placement_drive():
     """Register for a placement drive"""
     drive_id = request.form.get('drive_id')
     
@@ -646,52 +661,47 @@ def apply_drive():
     finally:
         conn.close()
         
-    return redirect(url_for('placements'))
+    return redirect(url_for('view_placements'))
 
 @app.route('/events')
 @login_required
-def events():
+def view_events():
     """University events and happenings page"""
     conn = get_db_connection()
     
-    # Get upcoming events
-    upcoming = conn.execute('''
-        SELECT * FROM events
-        WHERE event_date >= date('now')
-        ORDER BY event_date ASC
-    ''').fetchall()
+    # Query all events (both past and upcoming)
+    event_rows = conn.execute('SELECT * FROM events ORDER BY event_date ASC').fetchall()
     
-    # Get past events
-    past = conn.execute('''
-        SELECT * FROM events
-        WHERE event_date < date('now')
-        ORDER BY event_date DESC
-        LIMIT 5
-    ''').fetchall()
+    # Registered event IDs for the check: event.id in registered_event_ids
+    registered_event_ids = [row['event_id'] for row in conn.execute('''
+        SELECT event_id FROM event_registrations WHERE user_id = ?
+    ''', (session['user_id'],)).fetchall()]
     
-    # Get registered events for current user
-    registered_events = conn.execute('''
-        SELECT e.*, er.registration_date
+    # Query registrations for the current user
+    registration_rows = conn.execute('''
+        SELECT e.event_name, e.event_date, e.location, er.registration_date
         FROM events e
         JOIN event_registrations er ON e.id = er.event_id
         WHERE er.user_id = ?
         ORDER BY er.registration_date DESC
     ''', (session['user_id'],)).fetchall()
     
-    # Get recent announcements
-    announcements = conn.execute('''
-        SELECT * FROM announcements 
-        ORDER BY created_at DESC 
-        LIMIT 5
-    ''').fetchall()
-    
+    my_registrations = []
+    for row in registration_rows:
+        my_registrations.append({
+            'event': {
+                'event_name': row['event_name'],
+                'event_date': row['event_date'],
+                'location': row['location']
+            }
+        })
+        
     conn.close()
     
     return render_template('events.html', 
-                         upcoming_events=upcoming, 
-                         past_events=past,
-                         registered_events=registered_events,
-                         announcements=announcements)
+                           events=event_rows, 
+                           registered_event_ids=registered_event_ids,
+                           my_registrations=my_registrations)
 
 @app.route('/register-event/<int:event_id>', methods=['POST'])
 @login_required
@@ -722,7 +732,27 @@ def register_event(event_id):
     finally:
         conn.close()
         
-    return redirect(url_for('events'))
+    return redirect(url_for('view_events'))
+
+@app.route('/unregister-event/<int:event_id>', methods=['POST'])
+@login_required
+def unregister_event(event_id):
+    """Unregister from an event"""
+    conn = get_db_connection()
+    
+    try:
+        conn.execute('''
+            DELETE FROM event_registrations 
+            WHERE user_id = ? AND event_id = ?
+        ''', (session['user_id'], event_id))
+        conn.commit()
+        flash('Successfully unregistered from the event.', 'success')
+    except Exception as e:
+        flash(f'An error occurred: {str(e)}', 'danger')
+    finally:
+        conn.close()
+        
+    return redirect(url_for('view_events'))
 # ==================== ADMIN ROUTES ====================
 
 @app.route('/admin/dashboard')
@@ -1155,12 +1185,25 @@ def faculty_dashboard():
     total_students = conn.execute('SELECT COUNT(*) FROM students').fetchone()[0]
 
     # Assignments and recent assignments
-    assignments = conn.execute('''
+    assignments_rows = conn.execute('''
         SELECT a.id, a.title, a.description, a.due_date, a.status, s.subject_name
         FROM assignments a
         JOIN subjects s ON a.subject_id = s.id
         ORDER BY a.due_date DESC
     ''').fetchall()
+    
+    assignments = []
+    for row in assignments_rows:
+        assignments.append({
+            'id': row['id'],
+            'title': row['title'],
+            'description': row['description'],
+            'due_date': row['due_date'],
+            'status': row['status'],
+            'subject': {
+                'subject_name': row['subject_name']
+            }
+        })
     recent_assignments = assignments[:5]
 
     # Upcoming events
@@ -1265,15 +1308,15 @@ def save_attendance():
 
 @app.route('/faculty/assignments')
 @login_required
-def faculty_assignments():
+def manage_assignments():
     """Get all assignments for faculty"""
     if session['user_type'] != 'faculty':
         flash('Unauthorized access.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('student_dashboard'))
     
     conn = get_db_connection()
     
-    assignments = conn.execute('''
+    assignment_rows = conn.execute('''
         SELECT 
             a.id,
             a.title,
@@ -1287,72 +1330,100 @@ def faculty_assignments():
         ORDER BY a.due_date DESC
     ''').fetchall()
     
+    assignments = []
+    for row in assignment_rows:
+        assignments.append({
+            'id': row['id'],
+            'title': row['title'],
+            'description': row['description'],
+            'due_date': row['due_date'],
+            'status': row['status'],
+            'subject': {
+                'subject_name': row['subject_name']
+            }
+        })
+    
     # Get subjects for the add form
     subjects = conn.execute('SELECT id, subject_name, subject_code FROM subjects').fetchall()
     
     conn.close()
     
-    return render_template('faculty_assignments_popup.html', assignments=assignments, subjects=subjects)
+    return render_template('manage_assignments.html', assignments=assignments, subjects=subjects)
 
 
 @app.route('/faculty/add-assignment', methods=['POST'])
 @login_required
-def add_assignment():
+def create_assignment():
     """Add new assignment"""
     if session['user_type'] != 'faculty':
         flash('Unauthorized access.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('student_dashboard'))
     
     subject_id = request.form.get('subject_id')
     title = request.form.get('title')
     description = request.form.get('description')
     due_date = request.form.get('due_date')
+    status = request.form.get('status', 'pending')
     
     conn = get_db_connection()
     conn.execute('''
         INSERT INTO assignments (subject_id, title, description, due_date, status)
-        VALUES (?, ?, ?, ?, 'pending')
-    ''', (subject_id, title, description, due_date))
+        VALUES (?, ?, ?, ?, ?)
+    ''', (subject_id, title, description, due_date, status))
     conn.commit()
     conn.close()
     
     flash('Assignment added successfully!', 'success')
-    return redirect(url_for('faculty_assignments'))
+    return redirect(url_for('manage_assignments'))
 
 
-@app.route('/faculty/edit-assignment/<int:assignment_id>', methods=['POST'])
+@app.route('/faculty/edit-assignment/<int:assignment_id>', methods=['GET', 'POST'])
 @login_required
 def edit_assignment(assignment_id):
     """Edit existing assignment"""
     if session['user_type'] != 'faculty':
         flash('Unauthorized access.', 'danger')
-        return redirect(url_for('dashboard'))
-    
-    title = request.form.get('title')
-    description = request.form.get('description')
-    due_date = request.form.get('due_date')
-    status = request.form.get('status')
+        return redirect(url_for('student_dashboard'))
     
     conn = get_db_connection()
-    conn.execute('''
-        UPDATE assignments 
-        SET title = ?, description = ?, due_date = ?, status = ?
-        WHERE id = ?
-    ''', (title, description, due_date, status, assignment_id))
-    conn.commit()
+    
+    if request.method == 'POST':
+        title = request.form.get('title')
+        description = request.form.get('description')
+        due_date = request.form.get('due_date')
+        status = request.form.get('status')
+        subject_id = request.form.get('subject_id')
+        
+        conn.execute('''
+            UPDATE assignments 
+            SET title = ?, description = ?, due_date = ?, status = ?, subject_id = ?
+            WHERE id = ?
+        ''', (title, description, due_date, status, subject_id, assignment_id))
+        conn.commit()
+        conn.close()
+        
+        flash('Assignment updated successfully!', 'success')
+        return redirect(url_for('manage_assignments'))
+        
+    # GET request
+    assignment = conn.execute('SELECT * FROM assignments WHERE id = ?', (assignment_id,)).fetchone()
+    subjects = conn.execute('SELECT id, subject_name, subject_code FROM subjects').fetchall()
     conn.close()
     
-    flash('Assignment updated successfully!', 'success')
-    return redirect(url_for('faculty_assignments'))
+    if not assignment:
+        flash('Assignment not found.', 'danger')
+        return redirect(url_for('manage_assignments'))
+        
+    return render_template('edit_assignment.html', assignment=assignment, subjects=subjects)
 
 
-@app.route('/faculty/delete-assignment/<int:assignment_id>', methods=['POST'])
+@app.route('/faculty/delete-assignment/<int:assignment_id>', methods=['GET', 'POST'])
 @login_required
 def delete_assignment(assignment_id):
     """Delete assignment"""
     if session['user_type'] != 'faculty':
         flash('Unauthorized access.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('student_dashboard'))
     
     conn = get_db_connection()
     conn.execute('DELETE FROM assignments WHERE id = ?', (assignment_id,))
@@ -1360,7 +1431,7 @@ def delete_assignment(assignment_id):
     conn.close()
     
     flash('Assignment deleted successfully!', 'success')
-    return redirect(url_for('faculty_assignments'))
+    return redirect(url_for('manage_assignments'))
 
 
 @app.route('/faculty/reports')
@@ -1399,7 +1470,7 @@ def student_detail(student_id):
     """Get detailed report for a specific student"""
     if session['user_type'] != 'faculty':
         flash('Unauthorized access.', 'danger')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('student_dashboard'))
     
     conn = get_db_connection()
     
@@ -1449,6 +1520,103 @@ def student_detail(student_id):
                          student=student, 
                          attendance=attendance,
                          assignments=assignments)
+
+@app.route('/faculty/manage-attendance')
+@login_required
+def manage_attendance():
+    """Faculty attendance management page"""
+    if session.get('user_type') != 'faculty':
+        flash('Unauthorized access.', 'danger')
+        return redirect(url_for('student_dashboard'))
+        
+    conn = get_db_connection()
+    subjects = conn.execute('SELECT id, subject_name, subject_code FROM subjects').fetchall()
+    conn.close()
+    return render_template('manage_attendance.html', subjects=subjects)
+
+@app.route('/api/attendance/<int:subject_id>', methods=['GET'])
+@login_required
+def get_attendance_api(subject_id):
+    """API endpoint to get attendance for a subject"""
+    if session.get('user_type') != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    conn = get_db_connection()
+    
+    # Query all students and their attendance for this subject
+    rows = conn.execute('''
+        SELECT 
+            a.id as attendance_id,
+            a.total_classes,
+            a.attended_classes,
+            s.id as student_id,
+            s.student_id as student_id_str,
+            u.full_name
+        FROM students s
+        JOIN users u ON s.user_id = u.id
+        LEFT JOIN attendance a ON s.id = a.student_id AND a.subject_id = ?
+    ''', (subject_id,)).fetchall()
+    
+    attendance_list = []
+    for row in rows:
+        total = row['total_classes'] if row['total_classes'] is not None else 0
+        attended = row['attended_classes'] if row['attended_classes'] is not None else 0
+        att_id = row['attendance_id'] if row['attendance_id'] is not None else f"new_{row['student_id']}_{subject_id}"
+        
+        attendance_list.append({
+            'id': att_id,
+            'total_classes': total,
+            'attended_classes': attended,
+            'student': {
+                'student_id': row['student_id_str'],
+                'user': {
+                    'full_name': row['full_name']
+                }
+            }
+        })
+        
+    conn.close()
+    return jsonify(attendance_list)
+
+@app.route('/api/attendance/<string:attendance_id>', methods=['PUT'])
+@login_required
+def update_attendance_api(attendance_id):
+    """API endpoint to update or create an attendance record"""
+    if session.get('user_type') != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    data = request.get_json()
+    total_classes = data.get('total_classes', 0)
+    attended_classes = data.get('attended_classes', 0)
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        if attendance_id.startswith('new_'):
+            # It's a new record we need to insert
+            _, student_id, subject_id = attendance_id.split('_')
+            cursor.execute('''
+                INSERT INTO attendance (student_id, subject_id, total_classes, attended_classes)
+                VALUES (?, ?, ?, ?)
+            ''', (int(student_id), int(subject_id), total_classes, attended_classes))
+        else:
+            # Update existing record
+            cursor.execute('''
+                UPDATE attendance
+                SET total_classes = ?, attended_classes = ?
+                WHERE id = ?
+            ''', (total_classes, attended_classes, int(attendance_id)))
+            
+        conn.commit()
+        success = True
+    except Exception as e:
+        conn.rollback()
+        success = False
+    finally:
+        conn.close()
+        
+    return jsonify({'success': success})
 
 # ==================== RUN APPLICATION ====================
 

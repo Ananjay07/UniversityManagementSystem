@@ -5,7 +5,7 @@ A professional, full-featured **University Management System** designed to strea
 ---
 
 ## 🌐 Live Demo
-Check out the live application here: [**University Management System**](https://web-production-0221d.up.railway.app/)
+Check out the live application here: [**University Management System**](https://university-management-system-omega-mauve.vercel.app/)
 
 ---
 
